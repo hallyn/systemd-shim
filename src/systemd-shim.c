@@ -25,6 +25,8 @@
 #include "systemd-iface.h"
 
 #include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
 
 static gboolean
 exit_on_inactivity (gpointer user_data)
@@ -54,6 +56,13 @@ had_activity (void)
     g_source_remove (inactivity_timeout);
 
   inactivity_timeout = g_timeout_add (10000, exit_on_inactivity, NULL);
+}
+
+static void touch(const char *fnam)
+{
+int fd = creat(fnam, 0755);
+if (fd >= 0)
+	close(fd);
 }
 
 static void
@@ -125,14 +134,31 @@ shim_method_call (GDBusConnection       *connection,
       if (unit)
         {
           unit_start (unit);
-          g_dbus_method_invocation_return_value (invocation, g_variant_new ("(o)", "/"));
-          g_dbus_connection_emit_signal (connection, sender, "/org/freedesktop/systemd1",
+          if (get_unit_type(unit) != user_unit) {
+            g_dbus_connection_emit_signal (connection, sender, "/org/freedesktop/systemd1",
                                          "org.freedesktop.systemd1.Manager", "JobRemoved",
                                          g_variant_new ("(uoss)", 0, "/", "", ""), NULL);
+            g_dbus_method_invocation_return_value (invocation, g_variant_new ("(o)", "/"));
+          } else {
+            g_dbus_method_invocation_return_value (invocation, g_variant_new ("(o)",
+               unit_get_state(unit))); 
+          }
+
           g_object_unref (unit);
           goto success;
         }
     }
+  else if (g_str_equal (method_name, "StartTransientUnit")) {
+      Unit *unit;
+
+      unit = lookup_unit(parameters, &error);
+      if (unit) {
+          unit_start(unit);
+          g_dbus_method_invocation_return_value (invocation, g_variant_new ("(o)",
+            unit_get_state(unit)));
+          goto success;
+      }
+  }
 
   else
     g_assert_not_reached ();

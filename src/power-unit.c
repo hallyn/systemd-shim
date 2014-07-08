@@ -134,6 +134,11 @@ power_unit_get_state (Unit *unit)
   return "static";
 }
 
+static void set_type(UnitClass *unit)
+{
+  unit->type = power_unit;
+}
+
 Unit *
 power_unit_new (PowerAction action)
 {
@@ -142,7 +147,10 @@ power_unit_new (PowerAction action)
   g_return_val_if_fail (action < N_POWER_ACTIONS, NULL);
 
   unit = g_object_new (power_unit_get_type (), NULL);
+  if (!unit)
+    return NULL;
   unit->action = action;
+  set_type((UnitClass *)unit);
 
   return (Unit *) unit;
 }

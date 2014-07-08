@@ -129,13 +129,21 @@ ntp_unit_get_state (Unit *unit)
     return "disabled";
 }
 
+static void set_type(UnitClass *unit)
+{
+  unit->type = ntp_unit;
+}
+
 Unit *
 ntp_unit_get (void)
 {
-  if (ntp_unit_get_can_use_ntpdate () || ntp_unit_get_can_use_ntpd ())
-    return g_object_new (ntp_unit_get_type (), NULL);
+  Unit *unit = NULL;
 
-  return NULL;
+  if (ntp_unit_get_can_use_ntpdate () || ntp_unit_get_can_use_ntpd ())
+    unit = g_object_new (ntp_unit_get_type (), NULL);
+
+  set_type((UnitClass *)unit);
+  return unit;
 }
 
 static void

@@ -18,6 +18,8 @@
  */
 
 #include "unit.h"
+#include <string.h>
+#include <stdio.h>
 
 G_DEFINE_TYPE (Unit, unit, G_TYPE_OBJECT)
 
@@ -31,12 +33,46 @@ unit_class_init (UnitClass *class)
 {
 }
 
+/*
+ * for slices, sessions, and scope, we expect:
+ *   user-1000.slice
+ *   user@1000.service
+ *   session-2.scope
+ */
+static int get_uid_service(const gchar *name)
+{
+    int uid;
+
+    if (sscanf(name, "user@%d.service", &uid) == 1)
+      return uid;
+    return -1;
+}
+
+static int get_uid_slice(const gchar *name)
+{
+  int uid;
+
+  if (sscanf(name, "user-%d.slice", &uid) == 1)
+    return uid;
+  return -1;
+}
+
+static int get_session_scope(const gchar *name)
+{
+  int id;
+
+  if (sscanf(name, "session-%d.scope", &id) == 1)
+    return id;
+  return -1;
+}
+
 Unit *
 lookup_unit (GVariant  *parameters,
              GError   **error)
 {
   const gchar *unit_name;
   Unit *unit = NULL;
+  int uid;
 
   g_variant_get_child (parameters, 0, "&s", &unit_name);
 
@@ -54,6 +90,14 @@ lookup_unit (GVariant  *parameters,
 
   else if (g_str_equal (unit_name, "shutdown.target") || g_str_equal (unit_name, "poweroff.target"))
     unit = power_unit_new (POWER_OFF);
+
+  else if ((uid = get_uid_slice(unit_name)) >= 0)
+    unit = user_unit_new (uid);
+  else if ((uid = get_uid_service(unit_name)) >= 0)
+    /* We don't start systemd service units */
+    unit = NULL;
+  else if ((uid = get_session_scope(unit_name)) >= 0)
+    unit = scope_unit_new (uid, parameters);
 
   if (unit == NULL)
     g_set_error (error, G_DBUS_ERROR, G_DBUS_ERROR_FILE_NOT_FOUND,

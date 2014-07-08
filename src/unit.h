@@ -31,6 +31,7 @@ typedef struct
 {
   GObjectClass parent_class;
 
+  int type;
   const gchar * (* get_state) (Unit *unit);
   void (* start) (Unit *unit);
   void (* stop) (Unit *unit);
@@ -41,6 +42,18 @@ Unit *lookup_unit (GVariant *parameters, GError **error);
 const gchar *unit_get_state (Unit *unit);
 void unit_start (Unit *unit);
 void unit_stop (Unit *unit);
+
+typedef enum {
+  ntp_unit,
+  power_unit,
+  user_unit,
+  scope_unit,
+} UnitTypes;
+
+static inline int get_unit_type(Unit *unit) {
+  UnitClass *u = (UnitClass *)unit;
+  return u->type;
+}
 
 Unit *ntp_unit_get (void);
 
@@ -54,5 +67,7 @@ typedef enum
 } PowerAction;
 
 Unit *power_unit_new (PowerAction action);
+Unit *user_unit_new (int uid);
+Unit *scope_unit_new (int id, GVariant *parameters);
 
 #endif /* _unit_h_ */
