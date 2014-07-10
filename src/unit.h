@@ -37,6 +37,16 @@ typedef struct
   void (* stop) (Unit *unit);
 } UnitClass;
 
+typedef struct
+{
+  Unit parent_instance;
+  int id;
+  int uid;
+  int *pids;
+  int npids;
+  char *slice_path;
+} ScopeUnit;
+
 GType unit_get_type (void);
 Unit *lookup_unit (GVariant *parameters, GError **error);
 const gchar *unit_get_state (Unit *unit);

@@ -31,19 +31,12 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <string.h>
+#include <stdint.h>
 
 #include "cgmanager.h"
 
 typedef UnitClass ScopeUnitClass;
 static GType scope_unit_get_type (void);
-
-typedef struct
-{
-  Unit parent_instance;
-  int id;
-  int uid;
-  char *slice_path;
-} ScopeUnit;
 
 G_DEFINE_TYPE (ScopeUnit, scope_unit, UNIT_TYPE)
 
@@ -51,7 +44,7 @@ static void
 scope_unit_start (Unit *unit)
 {
   ScopeUnit *pu = (ScopeUnit *) unit;
-  cgmanager_create_all(pu->slice_path);
+  cgmanager_create_all(pu);
 }
 
 static void
@@ -59,6 +52,11 @@ scope_unit_stop (Unit *unit)
 {
   ScopeUnit *pu = (ScopeUnit *) unit;
   cgmanager_remove_all(pu->slice_path);
+  free(pu->pids);
+  free(pu->slice_path);
+  pu->pids = NULL;
+  pu->slice_path = NULL;
+  pu->npids = 0;
 }
 
 static const gchar *
@@ -87,6 +85,9 @@ scope_unit_new (int id, GVariant *parameters)
     unit = g_object_new (scope_unit_get_type (), NULL);
     if (!unit)
         return NULL;
+    unit->pids = NULL;
+    unit->npids = 0;
+    unit->slice_path = NULL;
     unit->id = id;
     set_type((UnitClass *)unit);
 
@@ -105,6 +106,28 @@ scope_unit_new (int id, GVariant *parameters)
             if (ret != 1) {
                 free(unit);
                 return NULL;
+            }
+        } else if (strcmp(str1, "PIDs") == 0) {
+            GVariantIter *pids;
+            uint32_t pid;
+            unit->pids = NULL;
+            unit->npids = 0;
+            g_variant_get (v, "au", &pids);
+            while (g_variant_iter_loop(pids, "u", &pid)) {
+                int *tmp = realloc(unit->pids, (unit->npids+1) * sizeof(int));
+                if (!tmp) {
+                    free(unit->pids);
+                    free(unit);
+                    return NULL;
+                }
+                unit->pids = tmp;
+                unit->pids[unit->npids] = (int)pid;
+                unit->npids++;
+{
+    FILE *f = fopen("/tmp/a", "a");
+    fprintf(f, "pid %d\n", (int)pid);
+    fclose(f);
+}
             }
         }
     }

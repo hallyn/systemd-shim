@@ -1,6 +1,10 @@
 /*
  * Copyright © 2014 Canonical Limited
  *
+ * Authors:
+ * Serge Hallyn <serge.hallyn@canonical.com>
+ * Stéphane Graber <stephane.graber@canonical.com>
+ *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the licence, or (at
@@ -17,18 +21,5 @@
  * USA.
  */
 
-#if HAVE_CGMANAGER
-
 void cgmanager_create_all(const char *path);
 void cgmanager_remove_all(const char *path);
-
-#else
-
-static inline void cgmanager_create_all(const char *path)
-{
-}
-
-static inline void cgmanager_remove_all(const char *path)
-{
-}
-#endif
