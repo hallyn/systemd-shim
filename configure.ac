@@ -5,7 +5,6 @@ AC_PROG_CC
 PKG_CHECK_MODULES(gio, gio-2.0)
 
 AC_CHECK_LIB([cgmanager],[cgmanager_create],[enable_cgmanager=yes],,[-lnih -lnih-dbus -ldbus-1])
-AM_CONDITIONAL([ENABLE_CGMANAGER], [test "x$enable_cgmanager" = "xyes"])
 
 PKG_CHECK_MODULES([CGMANAGER], [libcgmanager])
 PKG_CHECK_MODULES([NIH], [libnih >= 1.0.2])
