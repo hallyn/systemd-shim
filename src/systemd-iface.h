@@ -41,6 +41,9 @@ const gchar *systemd_iface =
     "<method name='Unsubscribe'/>"
     "<property name='Virtualization' type='s' access='read'/>"
    "</interface>"
+   "<interface name='org.freedesktop.systemd1.Scope'>"
+    "<method name='Abandon'/>"
+   " </interface>"
   "</node>";
 
 #endif

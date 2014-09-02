@@ -25,6 +25,9 @@
 #include "systemd-iface.h"
 
 #include <stdlib.h>
+#include <stdio.h> /* for debugging only */
+
+GDBusInterfaceInfo *manager_info = NULL, *scope_info = NULL;
 
 static gboolean
 exit_on_inactivity (gpointer user_data)
@@ -57,7 +60,7 @@ had_activity (void)
 }
 
 static void
-shim_method_call (GDBusConnection       *connection,
+mngr_method_call (GDBusConnection       *connection,
                   const gchar           *sender,
                   const gchar           *object_path,
                   const gchar           *interface_name,
@@ -67,6 +70,12 @@ shim_method_call (GDBusConnection       *connection,
                   gpointer               user_data)
 {
   GError *error = NULL;
+
+{
+  FILE *f = fopen("/tmp/x", "a");
+  fprintf(f, "iface %s method %s\n", interface_name, method_name);
+  fclose(f);
+}
 
   if (g_str_equal (method_name, "GetUnitFileState"))
     {
@@ -166,6 +175,30 @@ shim_method_call (GDBusConnection       *connection,
           goto success;
       }
   }
+  else if (g_str_equal (method_name, "Abandon"))
+    {
+{
+      FILE *f = fopen("/tmp/x", "a");
+      fprintf(f, "Called for scope:abandon\n");
+      fclose(f);
+}
+#if 0
+      Unit *unit;
+
+      unit = lookup_unit (parameters, &error);
+
+      if (unit)
+        {
+          unit_abandon (unit); // set remove_on_empty, then try to remove
+          g_dbus_method_invocation_return_value (invocation, g_variant_new ("(o)", "/"));
+          g_dbus_connection_emit_signal (connection, sender, "/org/freedesktop/systemd1",
+                                         "org.freedesktop.systemd1.Manager", "JobRemoved",
+                                         g_variant_new ("(uoss)", 0, "/", "", ""), NULL);
+          g_object_unref (unit);
+          goto success;
+        }
+#endif
+  }
 
   else
     g_assert_not_reached ();
@@ -178,7 +211,7 @@ success:
 }
 
 static GVariant *
-shim_get_property (GDBusConnection  *connection,
+mngr_get_property (GDBusConnection  *connection,
                    const gchar      *sender,
                    const gchar      *object_path,
                    const gchar      *interface_name,
@@ -197,22 +230,81 @@ shim_get_property (GDBusConnection  *connection,
   return g_variant_new ("s", id);
 }
 
+GDBusInterfaceVTable mngr_vtable = {
+  mngr_method_call,
+  mngr_get_property,
+};
+
+static gchar **
+subtree_enumerate (GDBusConnection       *connection,
+                   const gchar           *sender,
+                   const gchar           *object_path,
+                   gpointer               user_data)
+{
+  gchar **nodes;
+  GPtrArray *p;
+
+  p = g_ptr_array_new ();
+  g_ptr_array_add (p, g_strdup ("Manager"));
+  g_ptr_array_add (p, g_strdup ("Scope"));
+  g_ptr_array_add (p, NULL);
+  nodes = (gchar **) g_ptr_array_free (p, FALSE);
+
+  return nodes;
+}
+
+static GDBusInterfaceInfo **
+subtree_introspect (GDBusConnection       *connection,
+                    const gchar           *sender,
+                    const gchar           *object_path,
+                    const gchar           *node,
+                    gpointer               user_data)
+{
+  GPtrArray *p;
+
+  p = g_ptr_array_new ();
+
+  g_ptr_array_add (p, g_dbus_interface_info_ref (manager_info));
+  g_ptr_array_add (p, g_dbus_interface_info_ref (scope_info));
+  g_ptr_array_add (p, NULL);
+
+  return (GDBusInterfaceInfo **) g_ptr_array_free (p, FALSE);
+}
+
+static const GDBusInterfaceVTable *
+subtree_dispatch (GDBusConnection             *connection,
+                  const gchar                 *sender,
+                  const gchar                 *object_path,
+                  const gchar                 *interface_name,
+                  const gchar                 *node,
+                  gpointer                    *out_user_data,
+                  gpointer                     user_data)
+{
+  return &mngr_vtable;
+}
+
+const GDBusSubtreeVTable subtree_vtable =
+{
+  subtree_enumerate,
+  subtree_introspect,
+  subtree_dispatch
+};
+
 static void
 shim_bus_acquired (GDBusConnection *connection,
                    const gchar     *name,
                    gpointer         user_data)
 {
-  GDBusInterfaceVTable vtable = {
-    shim_method_call,
-    shim_get_property,
-  };
-  GDBusInterfaceInfo *iface;
-  GDBusNodeInfo *node;
+  guint rid;
 
-  node = g_dbus_node_info_new_for_xml (systemd_iface, NULL);
-  iface = g_dbus_node_info_lookup_interface (node, "org.freedesktop.systemd1.Manager");
-  g_dbus_connection_register_object (connection, "/org/freedesktop/systemd1", iface, &vtable, NULL, NULL, NULL);
-  g_dbus_node_info_unref (node);
+  rid = g_dbus_connection_register_subtree (connection,
+		  "/org/freedesktop/systemd1",
+		  &subtree_vtable,
+		  G_DBUS_SUBTREE_FLAGS_NONE,
+		  NULL,  /* user_data */
+		  NULL,  /* user_data_free_func */
+		  NULL); /* GError** */
+  g_assert (rid > 0);
 }
 
 static void
@@ -227,6 +319,14 @@ shim_name_lost (GDBusConnection *connection,
 int
 main (void)
 {
+  GDBusNodeInfo *node;
+
+  node = g_dbus_node_info_new_for_xml (systemd_iface, NULL);
+  g_assert( node );
+  manager_info = g_dbus_node_info_lookup_interface (node, "org.freedesktop.systemd1.Manager");
+  scope_info = g_dbus_node_info_lookup_interface (node, "org.freedesktop.systemd1.Scope");
+  g_assert( manager_info && scope_info );
+
   g_bus_own_name (G_BUS_TYPE_SYSTEM,
                   "org.freedesktop.systemd1",
                   G_BUS_NAME_OWNER_FLAGS_NONE,
@@ -238,4 +338,6 @@ main (void)
   cgmanager_moveself();
   while (1)
     g_main_context_iteration (NULL, TRUE);
+
+  g_dbus_node_info_unref (node);
 }
