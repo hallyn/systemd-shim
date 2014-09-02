@@ -18,6 +18,7 @@
  */
 
 #include "unit.h"
+#include <string.h>
 
 G_DEFINE_TYPE (Unit, unit, G_TYPE_OBJECT)
 
@@ -29,6 +30,30 @@ unit_init (Unit *unit)
 static void
 unit_class_init (UnitClass *class)
 {
+}
+
+static gchar *
+cg_session_unstrip(const gchar *orig)
+{
+   guint sessid;
+   if (sscanf(orig, "session_2d%u", &sessid) != 1)
+     return NULL;
+   return g_strdup_printf("session-%u.scope", sessid);
+}
+
+Unit *
+fake_unit (const gchar *object_path)
+{
+  Unit *unit = NULL;
+  gchar *sessionpath = strrchr(object_path, '/');
+  if (!sessionpath)
+    return NULL;
+  gchar *path = cg_session_unstrip(sessionpath+1);
+  if (!path)
+    return NULL;
+  unit = cgroup_unit_new (path);
+  g_free(path);
+  return unit;
 }
 
 Unit *
@@ -102,4 +127,12 @@ unit_stop (Unit *unit)
   g_return_if_fail (unit != NULL);
 
   return UNIT_GET_CLASS (unit)->stop (unit);
+}
+
+void
+unit_abandon (Unit *unit)
+{
+  g_return_if_fail (unit != NULL);
+
+  return UNIT_GET_CLASS (unit)->abandon (unit);
 }

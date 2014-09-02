@@ -43,4 +43,11 @@ const gchar *systemd_iface =
    "</interface>"
   "</node>";
 
+const gchar *scope_iface =
+  "<node>"
+   "<interface name='org.freedesktop.systemd1.Scope'>"
+    "<method name='Abandon'/>"
+   " </interface>"
+  "</node>";
+
 #endif

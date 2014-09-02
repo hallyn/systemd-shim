@@ -35,14 +35,17 @@ typedef struct
   void (* start) (Unit *unit);
   void (* start_transient) (Unit *unit, GVariant *properties);
   void (* stop) (Unit *unit);
+  void (* abandon) (Unit *unit);
 } UnitClass;
 
 GType unit_get_type (void);
 Unit *lookup_unit (GVariant *parameters, GError **error);
+Unit *fake_unit (const gchar *object_path);
 const gchar *unit_get_state (Unit *unit);
 void unit_start_transient (Unit *unit, GVariant *properties);
 void unit_start (Unit *unit);
 void unit_stop (Unit *unit);
+void unit_abandon (Unit *unit);
 
 Unit *ntp_unit_get (void);
 

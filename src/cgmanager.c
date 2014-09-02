@@ -24,6 +24,7 @@
 
 #include "cgmanager.h"
 
+#include <stdbool.h>
 #include <gio/gio.h>
 
 #define CGM_DBUS_ADDRESS          "unix:path=/sys/fs/cgroup/cgmanager/sock"
@@ -84,18 +85,16 @@ log_warning_on_error (GObject      *source,
     g_variant_unref (reply);
   else
     {
-      g_warning ("cgmanager method call failed: %s.  Use G_DBUS_DEBUG=message for more info.", error->message);
+      g_info ("cgmanager method call failed: %s.  Use G_DBUS_DEBUG=message for more info.", error->message);
       g_error_free (error);
     }
 }
 
-static void
-cgmanager_call (const gchar        *method_name,
-                GVariant           *parameters,
-                const GVariantType *reply_type)
+static GDBusConnection *connection;
+static gboolean initialised;
+
+static void cgmanager_connect_wrapper(void)
 {
-  static GDBusConnection *connection;
-  static gboolean initialised;
 
   /* Use a separate bool to prevent repeated attempts to connect to a
    * defunct cgmanager...
@@ -114,6 +113,14 @@ cgmanager_call (const gchar        *method_name,
 
       initialised = TRUE;
     }
+}
+
+static void
+cgmanager_call (const gchar        *method_name,
+                GVariant           *parameters,
+                const GVariantType *reply_type)
+{
+  cgmanager_connect_wrapper();
 
   if (!connection)
     return;
@@ -146,8 +153,6 @@ cgmanager_create (const gchar *path,
 
   for (i = 0; i < n_pids; i++)
     cgmanager_call ("MovePid", g_variant_new ("(ssi)", "all", path, pids[i]), G_VARIANT_TYPE_UNIT);
-
-  cgmanager_call ("RemoveOnEmpty", g_variant_new ("(ss)", "all", path), G_VARIANT_TYPE_UNIT);
 }
 
 void
@@ -163,4 +168,195 @@ void
 cgmanager_moveself (void)
 {
   cgmanager_call ("MovePidAbs", g_variant_new ("(ssi)", "all", "/", getpid()), G_VARIANT_TYPE_UNIT);
+}
+
+static bool cg_exists(const gchar *path)
+{
+  cgmanager_connect_wrapper();
+  GVariant *reply;
+  GError *error = NULL;
+
+  if (!connection)
+    return false;
+
+  reply = g_dbus_connection_call_sync (connection, NULL, "/org/linuxcontainers/cgmanager",
+                          "org.linuxcontainers.cgmanager0_0", "GetTasks",
+                          g_variant_new("(ss)", "name=systemd", path),
+                          G_VARIANT_TYPE("(ai)"), G_DBUS_CALL_FLAGS_NONE,
+                          -1, NULL, &error);
+  if (!reply) {
+    // we expect error if path does not exist
+    g_error_free (error);
+    return false;
+  }
+  return true;
+}
+
+static gchar *get_cgpath_from_scope(const gchar *scope)
+{
+  GVariant *reply, *array;
+  GError *error = NULL;
+  const gchar *child;
+  int i, last;
+
+  cgmanager_connect_wrapper();
+  if (!connection)
+    return NULL;
+
+  reply = g_dbus_connection_call_sync (connection, NULL, "/org/linuxcontainers/cgmanager",
+                          "org.linuxcontainers.cgmanager0_0", "ListChildren",
+                          g_variant_new("(ss)", "name=systemd", "user.slice"),
+                          G_VARIANT_TYPE("(as)"), G_DBUS_CALL_FLAGS_NONE, -1, NULL, &error);
+
+  if (!reply) {
+    g_warning ("Error getting list of sessions from cgmanager: %s", error->message);
+    g_error_free (error);
+    return NULL;
+  }
+
+  if (g_variant_n_children(reply) < 1) {
+    g_variant_unref(reply);
+    return NULL;
+  }
+
+  array = g_variant_get_child_value(reply, 0);
+  if (!array) {
+    g_variant_unref(reply);
+    return NULL;
+  }
+
+  last = (int)g_variant_n_children(array);
+
+  for (i = 0; i < last; i++) {
+    g_variant_get_child (array, (gsize)i, "s", &child);
+    gchar *path = g_strdup_printf("user.slice/%s/%s", child, scope);
+    if (!path) {
+        g_variant_unref(reply);
+        g_variant_unref(array);
+        return NULL;
+    }
+    if (cg_exists(path)) {
+        g_variant_unref(array);
+        g_variant_unref(reply);
+        return path;
+    }
+  }
+  g_variant_unref(array);
+  g_variant_unref(reply);
+  return NULL;
+}
+
+static void cg_rm_recursive(const gchar *path, bool killtasks)
+{
+  GVariant *reply, *array;
+  GError *error = NULL;
+  const gchar *child;
+  int i, last;
+
+  cgmanager_connect_wrapper();
+  if (!connection)
+    return;
+
+  cgmanager_call ("RemoveOnEmpty", g_variant_new ("(ss)", "all", path), G_VARIANT_TYPE_UNIT);
+
+  /* first kill any subdirs recursively */
+  reply = g_dbus_connection_call_sync (connection, NULL, "/org/linuxcontainers/cgmanager",
+                          "org.linuxcontainers.cgmanager0_0", "ListChildren",
+                          g_variant_new("(ss)", "name=systemd", path),
+                          G_VARIANT_TYPE("(as)"), G_DBUS_CALL_FLAGS_NONE, -1, NULL, &error);
+
+  if (!reply) {
+    g_warning ("Error getting list of sessions from cgmanager: %s", error->message);
+    g_error_free (error);
+    return;
+  }
+
+  if (g_variant_n_children(reply) < 1) {
+    g_variant_unref(reply);
+    return;
+  }
+
+  array = g_variant_get_child_value(reply, 0);
+  if (!array) {
+    g_variant_unref(reply);
+    return;
+  }
+
+  last = (int)g_variant_n_children(array);
+
+  for (i = 0; i < last; i++) {
+    g_variant_get_child (array, (gsize)i, "s", &child);
+    gchar *rpath = g_strdup_printf("%s/%s", path, child);
+    if (!rpath)
+        continue;
+    cg_rm_recursive(rpath, killtasks);
+  }
+  g_variant_unref(array);
+  g_variant_unref(reply);
+
+  if (killtasks) {
+    // kill any tasks here
+    reply = g_dbus_connection_call_sync (connection, NULL, "/org/linuxcontainers/cgmanager",
+                            "org.linuxcontainers.cgmanager0_0", "GetTasks",
+                            g_variant_new("(ss)", "name=systemd", path),
+                            G_VARIANT_TYPE("(ai)"), G_DBUS_CALL_FLAGS_NONE, -1, NULL, &error);
+
+    if (!reply) {
+      g_warning ("Error getting list of sessions from cgmanager: %s", error->message);
+      g_error_free (error);
+      return;
+    }
+
+    if (g_variant_n_children(reply) < 1) {
+      g_variant_unref(reply);
+      return;
+    }
+
+    array = g_variant_get_child_value(reply, 0);
+    if (!array) {
+      g_variant_unref(reply);
+      return;
+    }
+
+    last = (int)g_variant_n_children(array);
+
+    for (i = 0; i < last; i++) {
+      guint32 pid;
+      g_variant_get_child (array, (gsize)i, "i", &pid);
+      // XXX todo - should we be nicer here, do a sigterm and wait a bit?
+      kill(pid, SIGKILL);
+    }
+    g_variant_unref(array);
+    g_variant_unref(reply);
+  }
+
+  // and remove the directory
+  cgmanager_remove(path);
+  return;
+}
+
+void cgmanager_kill (const gchar *scope)
+{
+  gchar *cgpath;
+
+  cgpath = get_cgpath_from_scope(scope);
+  if (!cgpath)
+    return;
+
+  cg_rm_recursive (cgpath, true);
+  g_free(cgpath);
+}
+
+// Abandon means we don't want to kill the tasks, but we
+// do want to remove the cgroup if/when it is empty.
+void cgmanager_abandon (const gchar *scope)
+{
+  gchar *cgpath;
+
+  cgpath = get_cgpath_from_scope(scope);
+  if (!cgpath)
+    return;
+
+  cg_rm_recursive (cgpath, false);
+  g_free(cgpath);
 }
