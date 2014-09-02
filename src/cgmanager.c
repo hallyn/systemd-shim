@@ -26,7 +26,6 @@
 
 #include <stdbool.h>
 #include <gio/gio.h>
-#include <stdio.h> // for debug only
 
 #define CGM_DBUS_ADDRESS          "unix:path=/sys/fs/cgroup/cgmanager/sock"
 #define CGM_REQUIRED_VERSION      6
@@ -338,17 +337,7 @@ void cgmanager_kill (const gchar *scope)
 {
   gchar *cgpath;
 
-{
-  FILE *f = fopen("/tmp/kill", "a");
-  fprintf(f, "%s: called for %s\n", __func__, scope);
-  fclose(f);
-}
   cgpath = get_cgpath_from_scope(scope);
-{
-  FILE *f = fopen("/tmp/kill", "a");
-  fprintf(f, "%s: cgpath from scope was %s\n", __func__, cgpath ? cgpath : "(null)");
-  fclose(f);
-}
   if (!cgpath)
     return;
 
