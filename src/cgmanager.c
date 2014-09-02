@@ -89,13 +89,11 @@ log_warning_on_error (GObject      *source,
     }
 }
 
-static void
-cgmanager_call (const gchar        *method_name,
-                GVariant           *parameters,
-                const GVariantType *reply_type)
+static GDBusConnection *connection;
+static gboolean initialised;
+
+static void cgmanager_connect_wrapper(void)
 {
-  static GDBusConnection *connection;
-  static gboolean initialised;
 
   /* Use a separate bool to prevent repeated attempts to connect to a
    * defunct cgmanager...
@@ -114,6 +112,14 @@ cgmanager_call (const gchar        *method_name,
 
       initialised = TRUE;
     }
+}
+
+static void
+cgmanager_call (const gchar        *method_name,
+                GVariant           *parameters,
+                const GVariantType *reply_type)
+{
+  cgmanager_connect_wrapper();
 
   if (!connection)
     return;
@@ -163,4 +169,63 @@ void
 cgmanager_moveself (void)
 {
   cgmanager_call ("MovePidAbs", g_variant_new ("(ssi)", "all", "/", getpid()), G_VARIANT_TYPE_UNIT);
+}
+
+static bool cg_exists(const gchar *path)
+{
+  cgmanager_connect_wrapper();
+  GVariant *reply;
+
+  if (!connection)
+    return false;
+
+  reply = g_dbus_connectioncall_sync (connection, NULL, "/org/linuxcontainers/cgmanager",
+                          "org.linuxcontainers.cgmanager0_0", "GetTasks",
+                          g_variant_new("(ss)", "name=systemd", path),
+                          G_VARIANT_TYPE("(as)"), G_DBUS_CALL_FLAGS_NONE,
+                          -1, NULL, &error);
+  if (!reply)
+    return false;
+  return true;
+}
+
+static gchar *get_cgpath_from_scope(cont gchar *scope)
+{
+  GVariant *reply;
+  cgmanager_connect_wrapper();
+  GError *error = NULL;
+
+  if (!connection)
+    return NULL;
+
+  reply = g_dbus_connectioncall_sync (connection, NULL, "/org/linuxcontainers/cgmanager",
+                          "org.linuxcontainers.cgmanager0_0", "ListChildren",
+                          g_variant_new("(ss)", "name-systemd", "user.slice"),
+                          G_VARIANT_TYPE("(as)"), G_DBUS_CALL_FLAGS_NONE, -1, NULL, &error);
+
+  while (g_variant_iter_loop (&reply, "{s}", &child)) {
+      const gchar path = g_strdup_sprintf("user.slice/%s/%s", child, scope);
+      if (!path) {
+          g_variant_unref(reply);
+          return NULL;
+      }
+      if (cg_exists(path)) {
+          g_variant_unref(reply);
+          return path;
+      }
+      g_free(path);
+  }
+  g_variant_unref(reply);
+  return NULL;
+}
+
+void cgmanager_kill (const gchar *scope)
+{
+  gchar *cgpath;
+
+  cgpath = get_cgpath_from_scope(scope);
+  if (!cgpath)
+    return;
+
+  cg_kill_recursive (cgpath);
 }

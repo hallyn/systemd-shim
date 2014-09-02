@@ -151,7 +151,9 @@ cgroup_unit_start (Unit *unit)
 static void
 cgroup_unit_stop (Unit *unit)
 {
-  /* for now, no-op */
+  CGroupUnit *cg = (CGroupUnit *)unit;
+
+  cgmanager_kill(cg->name);
 }
 
 static const gchar *

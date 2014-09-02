@@ -34,4 +34,6 @@ void cgmanager_remove (const gchar *path);
 
 void cgmanager_moveself (void);
 
+void cgmanager_kill (const gchar *scope);
+
 #endif /* _cgmanager_h_ */
