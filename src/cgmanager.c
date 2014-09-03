@@ -27,8 +27,6 @@
 #include <stdbool.h>
 #include <gio/gio.h>
 
-#include <stdio.h>  // debug only
-
 #define CGM_DBUS_ADDRESS          "unix:path=/sys/fs/cgroup/cgmanager/sock"
 #define CGM_REQUIRED_VERSION      6
 

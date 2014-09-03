@@ -19,7 +19,6 @@
 
 #include "unit.h"
 #include <string.h>
-#include <stdio.h>
 
 G_DEFINE_TYPE (Unit, unit, G_TYPE_OBJECT)
 
