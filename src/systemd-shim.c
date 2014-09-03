@@ -92,7 +92,7 @@ static void assign_new_scopeinfo(GDBusConnection *connection, const gchar *scope
   guint sessid;
   gchar path[1024];
 
-  if (sscanf(scope, "session-%d", &sessid) != 1) {
+  if (sscanf(scope, "session-%u", &sessid) != 1) {
     g_info("Bad session scope: %s\n", scope);
     return;
   }
