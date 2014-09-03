@@ -148,12 +148,24 @@ cgroup_unit_start (Unit *unit)
   g_free (path);
 }
 
+extern void remove_scopeinfo(const gchar *scope);
+
 static void
 cgroup_unit_stop (Unit *unit)
 {
   CGroupUnit *cg = (CGroupUnit *)unit;
 
   cgmanager_kill(cg->name);
+  remove_scopeinfo(cg->name);
+}
+
+static void
+cgroup_unit_abandon (Unit *unit)
+{
+  CGroupUnit *cg = (CGroupUnit *)unit;
+
+  cgmanager_abandon(cg->name);
+  remove_scopeinfo(cg->name);
 }
 
 static const gchar *
@@ -185,5 +197,6 @@ cgroup_unit_class_init (UnitClass *class)
   class->start_transient = cgroup_unit_start_transient;
   class->start = cgroup_unit_start;
   class->stop = cgroup_unit_stop;
+  class->abandon = cgroup_unit_abandon;
   class->get_state = cgroup_unit_get_state;
 }

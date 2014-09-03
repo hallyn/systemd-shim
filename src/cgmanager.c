@@ -27,6 +27,8 @@
 #include <stdbool.h>
 #include <gio/gio.h>
 
+#include <stdio.h>  // debug only
+
 #define CGM_DBUS_ADDRESS          "unix:path=/sys/fs/cgroup/cgmanager/sock"
 #define CGM_REQUIRED_VERSION      6
 
@@ -85,7 +87,7 @@ log_warning_on_error (GObject      *source,
     g_variant_unref (reply);
   else
     {
-      g_warning ("cgmanager method call failed: %s.  Use G_DBUS_DEBUG=message for more info.", error->message);
+      g_info ("cgmanager method call failed: %s.  Use G_DBUS_DEBUG=message for more info.", error->message);
       g_error_free (error);
     }
 }
@@ -246,7 +248,7 @@ static gchar *get_cgpath_from_scope(const gchar *scope)
   return NULL;
 }
 
-static void cg_kill_recursive(const gchar *path)
+static void cg_rm_recursive(const gchar *path, bool killtasks)
 {
   GVariant *reply, *array;
   GError *error = NULL;
@@ -289,44 +291,46 @@ static void cg_kill_recursive(const gchar *path)
     gchar *rpath = g_strdup_printf("%s/%s", path, child);
     if (!rpath)
         continue;
-    cg_kill_recursive(rpath);
+    cg_rm_recursive(rpath, killtasks);
   }
   g_variant_unref(array);
   g_variant_unref(reply);
 
-  // kill any tasks here
-  reply = g_dbus_connection_call_sync (connection, NULL, "/org/linuxcontainers/cgmanager",
-                          "org.linuxcontainers.cgmanager0_0", "GetTasks",
-                          g_variant_new("(ss)", "name=systemd", path),
-                          G_VARIANT_TYPE("(ai)"), G_DBUS_CALL_FLAGS_NONE, -1, NULL, &error);
+  if (killtasks) {
+    // kill any tasks here
+    reply = g_dbus_connection_call_sync (connection, NULL, "/org/linuxcontainers/cgmanager",
+                            "org.linuxcontainers.cgmanager0_0", "GetTasks",
+                            g_variant_new("(ss)", "name=systemd", path),
+                            G_VARIANT_TYPE("(ai)"), G_DBUS_CALL_FLAGS_NONE, -1, NULL, &error);
 
-  if (!reply) {
-    g_warning ("Error getting list of sessions from cgmanager: %s", error->message);
-    g_error_free (error);
-    return;
-  }
+    if (!reply) {
+      g_warning ("Error getting list of sessions from cgmanager: %s", error->message);
+      g_error_free (error);
+      return;
+    }
 
-  if (g_variant_n_children(reply) < 1) {
+    if (g_variant_n_children(reply) < 1) {
+      g_variant_unref(reply);
+      return;
+    }
+
+    array = g_variant_get_child_value(reply, 0);
+    if (!array) {
+      g_variant_unref(reply);
+      return;
+    }
+
+    last = (int)g_variant_n_children(array);
+
+    for (i = 0; i < last; i++) {
+      guint32 pid;
+      g_variant_get_child (array, (gsize)i, "i", &pid);
+      // XXX todo - should we be nicer here, do a sigterm and wait a bit?
+      kill(pid, SIGKILL);
+    }
+    g_variant_unref(array);
     g_variant_unref(reply);
-    return;
   }
-
-  array = g_variant_get_child_value(reply, 0);
-  if (!array) {
-    g_variant_unref(reply);
-    return;
-  }
-
-  last = (int)g_variant_n_children(array);
-
-  for (i = 0; i < last; i++) {
-    guint32 pid;
-    g_variant_get_child (array, (gsize)i, "i", &pid);
-    // XXX todo - should we be nicer here, do a sigterm and wait a bit?
-    kill(pid, SIGKILL);
-  }
-  g_variant_unref(array);
-  g_variant_unref(reply);
 
   // and remove the directory
   cgmanager_remove(path);
@@ -341,5 +345,20 @@ void cgmanager_kill (const gchar *scope)
   if (!cgpath)
     return;
 
-  cg_kill_recursive (cgpath);
+  cg_rm_recursive (cgpath, true);
+  g_free(cgpath);
+}
+
+// Abandon means we don't want to kill the tasks, but we
+// do want to remove the cgroup if/when it is empty.
+void cgmanager_abandon (const gchar *scope)
+{
+  gchar *cgpath;
+
+  cgpath = get_cgpath_from_scope(scope);
+  if (!cgpath)
+    return;
+
+  cg_rm_recursive (cgpath, false);
+  g_free(cgpath);
 }
