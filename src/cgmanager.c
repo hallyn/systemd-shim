@@ -165,15 +165,9 @@ cgmanager_move_self (void)
 }
 
 void
-cgmanager_abandon (const gchar *path)
+cgmanager_prune (const gchar *path)
 {
-  cgmanager_call ("RemoveOnEmpty", g_variant_new ("(ss)", "all", path), G_VARIANT_TYPE_UNIT, NULL);
-
-  /* RemoveOnEmpty only removes the group if it _becomes_ empty.  If it
-   * is already empty, it will stick around.  Try to remove it
-   * ourselves.  Ignore errors.
-   */
-  cgmanager_call ("Remove", g_variant_new ("(ssi)", "all", path, 1), NULL, NULL);
+  cgmanager_call ("Prune", g_variant_new ("(ss)", "all", path), G_VARIANT_TYPE_UNIT, NULL);
 }
 
 void

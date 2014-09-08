@@ -29,6 +29,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <glib/gstdio.h>
 
 typedef UnitClass CGroupUnitClass;
 static GType cgroup_unit_get_type (void);
@@ -80,6 +81,35 @@ cgroup_unit_get_path_and_uid (const gchar *slice,
   return g_string_free (path, FALSE);
 }
 
+void store_scope(const gchar *unit, const gchar *slice, const gchar *path)
+{
+	gchar *fpath = g_strdup_printf("/run/systemd-shim/%s", unit);
+	g_assert(fpath);
+	g_mkdir("/run/systemd-shim", 0700);
+	FILE *f = g_fopen(fpath, "wc");
+	g_assert(f);
+	fprintf(f, "%s", path);
+	fclose(f);
+	g_free(fpath);
+}
+
+gchar *recall_scope(const gchar *unit)
+{
+	gchar *fpath = g_strdup_printf("/run/systemd-shim/%s", unit);
+	gchar *value;
+
+	g_assert( g_file_get_contents(fpath, &value, NULL, NULL) );
+
+	return value;
+}
+
+void forget_scope(const gchar *unit)
+{
+	gchar *fpath = g_strdup_printf("/run/systemd-shim/%s", unit);
+	g_assert(fpath);
+	g_remove(fpath);
+}
+
 static void
 cgroup_unit_start_transient (Unit     *unit,
                              GVariant *properties)
@@ -126,6 +156,7 @@ cgroup_unit_start_transient (Unit     *unit,
 
       path = cgroup_unit_get_path_and_uid (slice, cg_unit->name, &uid);
       cgmanager_create (path, uid, (const guint *) pids->data, pids->len);
+      store_scope(cg_unit->name, slice, path);
       g_free (path);
     }
   else
@@ -226,16 +257,16 @@ static void
 cgroup_unit_abandon (Unit *unit)
 {
   CGroupUnit *cg_unit = (CGroupUnit *) unit;
-  gchar **paths;
-  guint n;
+  gchar *path;
 
-  paths = cgmanager_enumerate_paths ("user.slice", &n);
-
-  while (n--)
-    if (cgroup_unit_path_matches (paths[n], cg_unit->name))
-      cgmanager_abandon (paths[n]);
-
-  g_strfreev (paths);
+  path = recall_scope(cg_unit->name);
+  if (!path) {
+    g_warning("Failed to find scope path for %s", cg_unit->name);
+    exit(1);
+  }
+  cgmanager_prune(path);
+  g_free(path);
+  forget_scope(cg_unit->name);
 }
 
 static const gchar *
