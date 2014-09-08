@@ -183,74 +183,31 @@ cgroup_unit_start (Unit *unit)
   g_free (path);
 }
 
-static gboolean
-cgroup_unit_path_matches (const gchar *path,
-                          const gchar *name)
-{
-  size_t pathlen = strlen (path);
-  size_t namelen = strlen (name);
-  const gchar *hit;
-
-  hit = memmem (path, pathlen, name, namelen);
-
-  /* No hit? */
-  if (!hit)
-    return FALSE;
-
-  /* Not at start of string or with '/' before? */
-  if (hit != path && hit[-1] != '/')
-    return FALSE;
-
-  /* Not at end of string or with '/' after? */
-  if (hit + namelen != path + pathlen && hit[namelen] != '/')
-    return FALSE;
-
-  return TRUE;
-}
-
-  /* Theoretically possible to do this more intelligently for slices,
-   * but let's do the dumb thing for now...
-   */
-#if 0
-  if (g_str_has_suffix (cg_unit->name, ".slice"))
-    {
-      gchar *first_path;
-
-      first_path = cgroup_unit_get_path_and_uid (cg_unit->name, NULL, NULL);
-      paths = cgmanager_enumerate_paths (first_path, &n);
-      g_free (first_path);
-    }
-#endif
-
 static void
 cgroup_unit_stop (Unit *unit)
 {
   CGroupUnit *cg_unit = (CGroupUnit *) unit;
   gboolean successful;
   gint tries;
+  gchar *path;
+
+  path = recall_scope(cg_unit->name);
+  if (!path) {
+    g_warning("Failed to find scope path for %s", cg_unit->name);
+    return;
+  }
 
   tries = 5;
 
   do
     {
-      gchar **paths;
-      guint n;
-
-      successful = TRUE;
-
-      paths = cgmanager_enumerate_paths ("user.slice", &n);
-
-      while (n--)
-        if (cgroup_unit_path_matches (paths[n], cg_unit->name))
-          {
-            cgmanager_kill (paths[n]);
-
-            successful &= cgmanager_remove (paths[n]);
-          }
-
-      g_strfreev (paths);
+      cgmanager_kill (path);
+      successful = cgmanager_remove (path);
     }
   while (tries-- && !successful);
+
+  g_free(path);
+  forget_scope(cg_unit->name);
 }
 
 static void

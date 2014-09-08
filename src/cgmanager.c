@@ -175,7 +175,7 @@ cgmanager_kill (const gchar *path)
 {
   GVariant *reply;
 
-  if (cgmanager_call ("GetTasks", g_variant_new ("(ss)", "name=systemd", path), G_VARIANT_TYPE ("(ai)"), &reply))
+  if (cgmanager_call ("GetTasksRecursive", g_variant_new ("(ss)", "all", path), G_VARIANT_TYPE ("(ai)"), &reply))
     {
       GVariantIter *iter;
       guint32 pid;
